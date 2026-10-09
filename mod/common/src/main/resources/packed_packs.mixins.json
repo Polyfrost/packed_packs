@@ -9,6 +9,7 @@
     "overrides.ResourcePacksMixin",
     "ResourcePacksScreenAccessor",
     "gui.ResourcePacksScreenMixin",
+    "folders.PackMcmetaMixin",
     "folders.UnopenedPackMixin"
   ],
   "injectors": {

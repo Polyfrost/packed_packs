@@ -20,6 +20,7 @@ import org.apache.commons.io.FileUtils;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
+import org.lwjgl.opengl.Display;
 
 import java.io.File;
 import java.util.*;
@@ -58,6 +59,8 @@ public final class PackedPacksScreen extends Screen {
     private final Deque<Snapshot> redo = new ArrayDeque<>();
     private PackList active = this.available;
     private boolean initialized;
+    private boolean resizing;
+    private int ticks;
     private boolean changed;
     private @Nullable Menu menu;
     private @Nullable String error;
@@ -133,7 +136,7 @@ public final class PackedPacksScreen extends Screen {
         int listHeight = this.height - 34 - 60;
         this.available.layout(left, 60, columnWidth, listHeight);
         this.selected.layout(right, 60, columnWidth, listHeight);
-        this.reloadPacks();
+        if (!this.resizing) this.reloadPacks(Folders.stale());
 
         int bottomWidth = (columnWidth * 2 - 8) / 3;
         this.buttons.clear();
@@ -148,6 +151,13 @@ public final class PackedPacksScreen extends Screen {
         this.updateButtons();
     }
 
+    @Override
+    public void resize(Minecraft minecraft, int width, int height) {
+        this.resizing = true;
+        super.resize(minecraft, width, height);
+        this.resizing = false;
+    }
+
     private void updateButtons() {
         Config.Profile profile = this.profile();
         this.buttons.get(PROFILE_BUTTON).message = profile != null ? profile.name : I18n.translate("packed_packs.profile.none");
@@ -156,8 +166,12 @@ public final class PackedPacksScreen extends Screen {
     }
 
     private void reloadPacks() {
+        this.reloadPacks(true);
+    }
+
+    private void reloadPacks(boolean rescan) {
         ResourcePacks repository = this.repository();
-        repository.reload();
+        if (rescan) repository.reload();
         List<ResourcePacks.UnopenedPack> all = repository.getAvailablePacks();
 
         this.entries.clear();
@@ -177,6 +191,7 @@ public final class PackedPacksScreen extends Screen {
             this.entries.put(id, entry);
             this.owners.put(id, owner != null ? owner : entry);
         }
+        Folders.loaded(this.entries.keySet());
         for (PackList list : List.of(this.available, this.selected)) {
             Entry folder = this.entries.get(list.folder);
             if (folder == null || list == this.selected && !folder.isLocked()) list.folder = "";
@@ -206,9 +221,11 @@ public final class PackedPacksScreen extends Screen {
             this.changed = true;
         }
         this.available.packs.replaceAll(entry -> this.entries.getOrDefault(entry.id, entry));
-        this.available.packs.removeIf(entry -> entry.nested || !this.entries.containsKey(entry.id) || this.selected.packs.contains(entry));
+        Set<Entry> selected = new HashSet<>(this.selected.packs);
+        this.available.packs.removeIf(entry -> entry.nested || !this.entries.containsKey(entry.id) || selected.contains(entry));
+        Set<Entry> listed = new HashSet<>(this.available.packs);
         for (Entry entry : this.entries.values()) {
-            if (!entry.nested && !this.selected.packs.contains(entry) && !this.available.packs.contains(entry)) {
+            if (!entry.nested && !selected.contains(entry) && listed.add(entry)) {
                 this.available.packs.add(entry);
             }
         }
@@ -864,6 +881,10 @@ public final class PackedPacksScreen extends Screen {
     public void tick() {
         this.available.search.tick();
         this.selected.search.tick();
+
+        if (this.dragSource == null && (Display.isActive() && Folders.expired() || ++this.ticks % 20 == 0 && Folders.changed())) {
+            this.reloadPacks();
+        }
     }
 
     @Override

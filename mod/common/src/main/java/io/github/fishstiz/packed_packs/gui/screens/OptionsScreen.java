@@ -1,5 +1,6 @@
 package io.github.fishstiz.packed_packs.gui.screens;
 
+import io.github.fishstiz.packed_packs.Folders;
 import io.github.fishstiz.packed_packs.config.Config;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -52,6 +53,7 @@ final class OptionsScreen extends Screen {
             button.message = option.label();
         } else {
             this.config.save();
+            Folders.expire();
             this.minecraft.openScreen(this.parent);
         }
     }

@@ -16,6 +16,7 @@ public final class Entry {
     public final boolean nested;
     public List<ResourcePacks.UnopenedPack> packs = List.of();
     private @Nullable File file;
+    private long lastModified = -1;
 
     public Entry(String id, ResourcePacks.@Nullable UnopenedPack pack, boolean module, boolean nested) {
         this.id = id;
@@ -70,8 +71,8 @@ public final class Entry {
     }
 
     public long lastModified() {
-        File file = this.file();
-        return file != null ? file.lastModified() : 0;
+        if (this.lastModified < 0) this.lastModified = Folders.lastModified(this.id);
+        return this.lastModified;
     }
 
     @Override

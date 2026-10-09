@@ -64,8 +64,9 @@ public final class PackList {
             stream = this.packs.stream().filter(entry -> entry.transferable() && entry.id.toLowerCase(Locale.ROOT).contains(query));
         } else if (opened) {
             List<Entry> children = this.children.apply(this.folder);
+            Set<Entry> packs = new HashSet<>(this.packs);
             locked = children.stream().anyMatch(entry -> entry.nested);
-            stream = children.stream().filter(entry -> entry.nested || (entry.transferable() ? this.packs.contains(entry) : this.hasContents(entry)));
+            stream = children.stream().filter(entry -> entry.nested || (entry.transferable() ? packs.contains(entry) : this.hasContents(entry)));
         } else {
             stream = this.packs.stream().filter(entry -> entry.parent().isEmpty() && (entry.transferable() || this.hasContents(entry)));
         }
