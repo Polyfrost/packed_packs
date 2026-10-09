@@ -1,32 +1,17 @@
 {
   "required": true,
+  "minVersion": "0.8",
   "package": "io.github.fishstiz.packed_packs.transform.mixin",
-  "compatibilityLevel": "JAVA_25",
+  "compatibilityLevel": "JAVA_8",
+  "client": [
+    "folders.additional.MinecraftMixin",
+    "gui.ResourcePackEntryMixin",
+    "overrides.ResourcePacksMixin",
+    "ResourcePacksScreenAccessor",
+    "gui.ResourcePacksScreenMixin",
+    "folders.UnopenedPackMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
-  },
-  "client": [
-    "PackSelectionModelAccessor",
-    "PackSelectionModelMixin",
-    "PackSelectionScreenAccessor",
-    "UtilAccess",
-    "aliases.OptionsMixin",
-    "compat.polytone.OptionsSubScreenMixin",
-    "folders.FolderRepositorySourceMixin",
-    "folders.PackMixin",
-    "folders.additional.CreateWorldScreenMixin",
-    "folders.additional.FolderRepositorySourceAccessor",
-    "folders.additional.MinecraftMixin",
-    "folders.additional.PackRepositoryAccessor",
-    "folders.additional.ServerPacksSourceMixin",
-    "gui.CreateWorldScreenMoreTabMixin",
-    "gui.GuiMixin",
-    "gui.OptionsScreenMixin",
-    "gui.PackSelectionScreenMixin",
-    "overrides.CreateWorldScreenMixin",
-    "overrides.OptionsMixin",
-    "overrides.PackMixin",
-    "overrides.PackRepositoryMixin",
-    "overrides.PackSelectionModelMixin"
-  ]
+  }
 }

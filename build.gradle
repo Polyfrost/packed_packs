@@ -1,26 +1,89 @@
-import me.modmuss50.mpp.ReleaseType
-
 plugins {
-    id 'fabric-loom' version "$loom_version" apply false
-    id 'net.neoforged.moddev' version "$moddev_version" apply false
-    id 'me.modmuss50.mod-publish-plugin'
+    id 'net.fabricmc.fabric-loom-remap' version "$loom_version"
+    id 'ploceus' version "$ploceus_version"
 }
 
 group = maven_group
 version = mod_version
 
-publishMods {
-    dryRun = Boolean.valueOf(dry_run)
-    type = ReleaseType.of(release_type)
-    changelog = file("CHANGELOG.md").text
+base {
+    archivesName = archives_base_name
+}
 
-    github {
-        accessToken = findProperty("GITHUB_TOKEN") ?: ""
-        repository = "fishstiz/packed_packs"
-        commitish = "mc/26.3"
-        version = mod_version
-        tagName = "v${this.version}"
-        displayName = "v${this.version}"
-        allowEmptyFiles = true
+ploceus {
+    setIntermediaryGeneration(2)
+}
+
+configurations.configureEach {
+    exclude group: 'org.lwjgl.lwjgl'
+}
+
+repositories {
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Clover Client'
+                url = 'https://maven.cloverclient.com/releases'
+            }
+        }
+        filter { includeGroup('pl.tomgirl') }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:$minecraft_version"
+    mappings ploceus.layeredMappings {
+        mappings "net.ornithemc:feather-gen2:$minecraft_version+build.$feather_build:v2"
+    }
+    modImplementation "net.fabricmc:fabric-loader:$fabric_loader_version"
+    ploceus.dependOsl(osl_version)
+    modImplementation "pl.tomgirl:pylon:$pylon_version"
+}
+
+sourceSets.main {
+    java.srcDirs = ['mod/common/src/main/java']
+    resources.srcDirs = ['mod/common/src/main/resources', 'mod/fabric/src/main/resources']
+}
+
+loom {
+    runConfigs.configureEach {
+        runDir 'run'
+    }
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(java_version)
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = java_version.toInteger()
+    it.options.encoding = 'UTF-8'
+}
+
+processResources {
+    def props = [
+            'mod_version'          : mod_version,
+            'mod_id'               : mod_id,
+            'mod_name'             : mod_name,
+            'mod_author'           : mod_author,
+            'mod_description'      : mod_description,
+            'license'              : license,
+            'sources'              : sources,
+            'issues'               : issues,
+            'credits'              : credits,
+            'minecraft_version'    : minecraft_version,
+            'fabric_loader_version': fabric_loader_version,
+            'java_version'         : java_version
+    ]
+    inputs.properties(props)
+    filesMatching('fabric.mod.json') {
+        expand props
+    }
+}
+
+jar {
+    from(rootProject.file('LICENSE')) {
+        rename { "${it}_${mod_name}" }
     }
 }

@@ -1,194 +1,152 @@
 package io.github.fishstiz.packed_packs.config;
 
-import io.github.fishstiz.packed_packs.PackedPacks;
 import io.github.fishstiz.packed_packs.gui.components.SortOption;
-import io.github.fishstiz.packed_packs.gui.components.SortOptions;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
-import net.minecraft.server.packs.PackType;
-import org.jspecify.annotations.Nullable;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import io.github.fishstiz.packed_packs.PackedPacks;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.Serializable;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.stream.Stream;
 
 public final class Config {
-    private static final String FILENAME = "config.json";
-    private static final Config INSTANCE = JsonLoader.loadOrCreate(getPath(), Config.class, Config::new);
-    private boolean devMode = false;
-    private boolean showActionBar = false;
-    private boolean hideIncompatible = false;
-    private String sort;
-    private final ResourcePacks resourcepacks = new ResourcePacks();
-    private final DataPacks datapacks = new DataPacks();
-
-    private Config() {
-    }
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static @Nullable Config instance;
+    public boolean replaceOriginal = true;
+    public boolean applyOnClose = true;
+    public boolean devMode;
+    public boolean hideIncompatible;
+    public boolean hideIncompatibleWarnings;
+    public boolean foldersModuleByDefault;
+    public boolean rememberLastViewedProfile;
+    public SortOption sort = SortOption.NONE;
+    public List<String> additionalFolders = new ArrayList<>();
+    public @Nullable String activeProfile;
+    public List<Profile> profiles = new ArrayList<>();
 
     private static Path getPath() {
-        return PackedPacks.getConfigDir().resolve(FILENAME);
+        return PackedPacks.getConfigDir().resolve("config.json");
     }
 
     public static Config get() {
-        return INSTANCE;
+        if (instance == null) {
+            instance = load();
+        }
+        return instance;
     }
 
-    public static Packs packs(PackType packType) {
-        return INSTANCE.get(packType);
-    }
-
-    public Packs get(PackType packType) {
-        return switch (packType) {
-            case CLIENT_RESOURCES -> this.getResourcepacks();
-            case SERVER_DATA -> this.getDatapacks();
-        };
+    private static Config load() {
+        try {
+            Config config = GSON.fromJson(Files.readString(getPath()), Config.class);
+            if (config != null) {
+                if (config.sort == null) config.sort = SortOption.NONE;
+                if (config.additionalFolders == null) config.additionalFolders = new ArrayList<>();
+                if (config.profiles == null) config.profiles = new ArrayList<>();
+                config.profiles.removeIf(profile -> profile == null || profile.name == null || profile.packs == null);
+                for (Profile profile : config.profiles) {
+                    if (profile.overrides == null) profile.overrides = new HashMap<>();
+                    profile.overrides.values().removeIf(Objects::isNull);
+                }
+                return config;
+            }
+        } catch (NoSuchFileException ignored) {
+        } catch (Exception e) {
+            PackedPacks.LOGGER.error("[packed_packs] Failed to load file at '{}'.", getPath(), e);
+        }
+        return new Config();
     }
 
     public void save() {
-        JsonLoader.saveJson(this, getPath());
-    }
-
-    public boolean isDevMode() {
-        return this.devMode;
-    }
-
-    public void setDevMode(boolean devMode) {
-        this.devMode = devMode;
-    }
-
-    public void setShowActionBar(boolean showActionBar) {
-        this.showActionBar = showActionBar;
-    }
-
-    public boolean isShowActionBar() {
-        return this.showActionBar;
-    }
-
-    public boolean isHideIncompatible() {
-        return this.hideIncompatible;
-    }
-
-    public void setHideIncompatible(boolean hideIncompatible) {
-        this.hideIncompatible = hideIncompatible;
-    }
-
-    public SortOption getSort() {
-        return SortOptions.getOrDefault(this.sort);
-    }
-
-    public void setSort(@Nullable SortOption sort) {
-        if (sort == null) {
-            this.sort = SortOptions.VANILLA.name();
-            return;
+        try {
+            Files.createDirectories(getPath().getParent());
+            Files.writeString(getPath(), GSON.toJson(this));
+        } catch (Exception e) {
+            PackedPacks.LOGGER.error("[packed_packs] Failed to save file at '{}'.", getPath(), e);
         }
+    }
 
-        if (sort == SortOptions.NONE) {
-            return;
-        }
-
-        if (sort instanceof SortOption.Locked(SortOption locked)) {
-            if (locked != null) {
-                this.sort = locked.name();
+    private @Nullable Profile getProfile(@Nullable String name) {
+        for (Profile profile : this.profiles) {
+            if (profile.name.equals(name)) {
+                return profile;
             }
-            return;
         }
-
-        this.sort = sort.name();
+        return null;
     }
 
-    public ResourcePacks getResourcepacks() {
-        return this.resourcepacks;
+    public @Nullable Profile getActiveProfile() {
+        return this.getProfile(this.activeProfile);
     }
 
-    public DataPacks getDatapacks() {
-        return this.datapacks;
+    public @Nullable Profile getDefaultProfile() {
+        return this.getProfile(DevConfig.get().defaultProfile);
     }
 
-    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
-    public abstract static sealed class Packs implements Serializable {
-        private boolean replaceOriginal = true;
-        private boolean hideIncompatibleWarnings = false;
-        private final List<String> additionalFolders = new ObjectArrayList<>();
-        private boolean foldersModuleByDefault = false;
-        private boolean rememberLastViewedProfile = false;
-        private @Nullable String lastViewedProfile = null;
-        private List<String> profileOrder = new ObjectArrayList<>();
+    public @Nullable PackOverride globalOverride(String id) {
+        Profile profile = this.getDefaultProfile();
+        return profile != null && profile != this.getActiveProfile() ? profile.overrides.get(id) : null;
+    }
 
-        public abstract PackType packType();
+    private Stream<PackOverride> overrides(String id) {
+        return Stream.of(this.getDefaultProfile(), this.getActiveProfile())
+                .filter(Objects::nonNull)
+                .distinct()
+                .map(profile -> profile.overrides.get(id))
+                .filter(Objects::nonNull);
+    }
 
-        public boolean isLastViewedProfileRemembered() {
-            return this.rememberLastViewedProfile;
+    public boolean isHidden(String id) {
+        return this.overrides(id).anyMatch(override -> override.hidden);
+    }
+
+    public boolean isRequired(String id) {
+        return this.overrides(id).anyMatch(override -> override.required);
+    }
+
+    public @Nullable Position position(String id) {
+        return this.overrides(id).map(override -> override.position).filter(Objects::nonNull).findFirst().orElse(null);
+    }
+
+    public enum Position {
+        TOP, BOTTOM
+    }
+
+    public static final class PackOverride {
+        public boolean hidden;
+        public boolean required;
+        public @Nullable Position position;
+
+        public boolean isEmpty() {
+            return !this.hidden && !this.required && this.position == null;
         }
 
-        public void setRememberLastViewedProfile(boolean rememberLastViewedProfile) {
-            this.rememberLastViewedProfile = rememberLastViewedProfile;
-        }
-
-        List<String> getProfileOrder() {
-            return this.profileOrder;
-        }
-
-        void setProfileOrder(List<String> profileOrder) {
-            this.profileOrder = profileOrder;
-        }
-
-        @Nullable String getLastViewedProfile() {
-            return this.lastViewedProfile;
-        }
-
-        void setLastViewedProfile(@Nullable Profile lastViewedProfile) {
-            this.lastViewedProfile = lastViewedProfile != null ? lastViewedProfile.getId() : null;
-        }
-
-        public boolean isReplaceOriginal() {
-            return this.replaceOriginal;
-        }
-
-        public void setReplaceOriginal(boolean replaceOriginal) {
-            this.replaceOriginal = replaceOriginal;
-        }
-
-        public boolean isIncompatibleWarningsHidden() {
-            return this.hideIncompatibleWarnings;
-        }
-
-        public void setHideIncompatibleWarnings(boolean hidden) {
-            this.hideIncompatibleWarnings = hidden;
-        }
-
-        public List<String> getAdditionalFolders() {
-            return List.copyOf(this.additionalFolders);
-        }
-
-        public boolean areFoldersModuleByDefault() {
-            return this.foldersModuleByDefault;
-        }
-
-        public void setFoldersModuleByDefault(boolean foldersModuleByDefault) {
-            this.foldersModuleByDefault = foldersModuleByDefault;
+        PackOverride copy() {
+            PackOverride copy = new PackOverride();
+            copy.hidden = this.hidden;
+            copy.required = this.required;
+            copy.position = this.position;
+            return copy;
         }
     }
 
-    public static final class DataPacks extends Packs {
-        @Override
-        public PackType packType() {
-            return PackType.SERVER_DATA;
-        }
-    }
+    public static final class Profile {
+        public String name;
+        public boolean locked;
+        public List<String> packs = new ArrayList<>();
+        public Map<String, PackOverride> overrides = new HashMap<>();
 
-    public static final class ResourcePacks extends Packs {
-        private boolean applyOnClose = true;
-
-        @Override
-        public PackType packType() {
-            return PackType.CLIENT_RESOURCES;
+        public Profile(String name, List<String> packs) {
+            this.name = name;
+            this.packs = new ArrayList<>(packs);
         }
 
-        public boolean isApplyOnClose() {
-            return this.applyOnClose;
-        }
-
-        public void setApplyOnClose(boolean applyOnClose) {
-            this.applyOnClose = applyOnClose;
+        public Profile copy() {
+            Profile copy = new Profile(this.name, this.packs);
+            this.overrides.forEach((id, override) -> copy.overrides.put(id, override.copy()));
+            return copy;
         }
     }
 }

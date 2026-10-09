@@ -1,49 +1,32 @@
 package io.github.fishstiz.packed_packs.gui.components;
 
-import io.github.fishstiz.packed_packs.pack.PackNode;
-import io.github.fishstiz.packed_packs.util.GuiUtils;
-import net.minecraft.network.chat.CommonComponents;
-import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
-import org.jspecify.annotations.Nullable;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Comparator;
-import java.util.SequencedCollection;
+import java.util.Locale;
+import java.util.function.Function;
+import java.util.function.ToLongFunction;
 
-public interface SortOption {
-    String name();
+public enum SortOption {
+    NONE, A_Z, Z_A, RECENT, OLDEST;
 
-    Identifier icon();
-
-    Component text();
-
-    default @Nullable Comparator<PackNode> comparator(SequencedCollection<PackNode> packs) {
-        return null;
+    public String translationKey() {
+        return "packed_packs.sort." + this.name().toLowerCase(Locale.ROOT);
     }
 
-    default boolean canSort() {
-        return true;
+    public SortOption next() {
+        return values()[(this.ordinal() + 1) % values().length];
     }
 
-    record Locked(@Nullable SortOption sort) implements SortOption {
-        @Override
-        public String name() {
-            return "LOCKED";
-        }
-
-        @Override
-        public Identifier icon() {
-            return GuiUtils.LOCK_SPRITE_SMALL;
-        }
-
-        @Override
-        public Component text() {
-            return CommonComponents.EMPTY;
-        }
-
-        @Override
-        public boolean canSort() {
-            return false;
-        }
+    public <T> @Nullable Comparator<T> comparator(Function<T, String> name, ToLongFunction<T> lastModified) {
+        Comparator<T> byName = Comparator.comparing(name, String.CASE_INSENSITIVE_ORDER);
+        Comparator<T> byDate = Comparator.comparingLong(lastModified);
+        return switch (this) {
+            case NONE -> null;
+            case A_Z -> byName;
+            case Z_A -> byName.reversed();
+            case RECENT -> byDate.reversed();
+            case OLDEST -> byDate;
+        };
     }
 }

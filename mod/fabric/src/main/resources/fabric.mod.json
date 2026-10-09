@@ -17,33 +17,18 @@
   "license": "${license}",
   "icon": "icon.png",
   "environment": "client",
-  "entrypoints": {
-    "modmenu": [
-      "io.github.fishstiz.packed_packs.compat.modmenu.PackedPacksModMenu"
-    ],
-    "packed_packs": [
-      "io.github.fishstiz.packed_packs.compat.etf.ETFIntegration",
-      "io.github.fishstiz.packed_packs.compat.resourcify.ResourcifyIntegration",
-      "io.github.fishstiz.packed_packs.compat.respackopts.RespackoptsIntegration",
-      "io.github.fishstiz.packed_packs.compat.vtdownloader.VTDIntegration",
-      "io.github.fishstiz.packed_packs.compat.polytone.PolytoneIntegration"
-    ]
-  },
   "mixins": [
-    {
-      "config": "${mod_id}.mixins.json",
-      "environment": "client"
-    },
-    {
-      "config": "${mod_id}.fabric.mixins.json",
-      "environment": "client"
-    }
+    "${mod_id}.mixins.json"
   ],
   "depends": {
-    "fabricloader": "*",
-    "minecraft": "${fabric_minecraft_version_range}",
+    "fabricloader": ">=${fabric_loader_version}",
+    "minecraft": "${minecraft_version}",
     "java": ">=${java_version}",
-    "fabric-api": "*",
-    "fidgetz": "*"
+    "osl-localization": "*",
+    "osl-resource-loader": "*",
+    "pylon": "*"
+  },
+  "recommends": {
+    "sarcio": "*"
   }
 }

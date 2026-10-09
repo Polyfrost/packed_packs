@@ -2,7 +2,10 @@
   "packed_packs.dev_mode": "Developer Mode: %1$s",
   "packed_packs.folder": "Folder",
   "packed_packs.folder.open": "Show Packs...",
-  "packed_packs.folder.recall": "Recall",
+  "packed_packs.folder.recall": "Recall Packs",
+  "packed_packs.folder.lock": "Lock Folder",
+  "packed_packs.folder.unlock": "Unlock Folder",
+  "packed_packs.folder.locked": "Locked Folder",
   "packed_packs.file.open": "Open File",
   "packed_packs.file.fail": "File operation failed",
   "packed_packs.file.rename": "Rename File",
@@ -75,5 +78,6 @@
   "packed_packs.preferences.widgets.respackopts_button": "Respackopts Buttons",
   "packed_packs.preferences.widgets.vtd_button": "VTD Button",
   "packed_packs.preferences.widgets.vtd_edit_button": "VTD Edit Buttons",
-  "packed_packs.preferences.widgets.polytone_button": "Polytone Button"
+  "packed_packs.preferences.widgets.polytone_button": "Polytone Button",
+  "packed_packs.transfer": "Transfer"
 }
