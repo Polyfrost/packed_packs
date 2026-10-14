@@ -59,6 +59,11 @@ public final class Entry {
         return this.pack != null ? Folders.format(this.pack) != 1 : this.packs.stream().anyMatch(pack -> Folders.format(pack) != 1);
     }
 
+    public String incompatibility() {
+        boolean old = this.pack != null ? Folders.format(this.pack) < 1 : this.packs.stream().anyMatch(pack -> Folders.format(pack) < 1);
+        return old ? "old" : "new";
+    }
+
     public String description() {
         if (this.pack != null) return this.pack.getDescription();
         if (this == UP) return "";

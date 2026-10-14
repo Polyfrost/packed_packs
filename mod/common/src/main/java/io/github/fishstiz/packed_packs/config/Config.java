@@ -15,6 +15,7 @@ import java.util.stream.Stream;
 public final class Config {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static @Nullable Config instance;
+    public static final List<String> PREFERENCES = List.of("original_screen", "options", "action_bar", "toggle_incompatible", "folder_pack");
     public boolean replaceOriginal = true;
     public boolean applyOnClose = true;
     public boolean devMode;
@@ -24,6 +25,8 @@ public final class Config {
     public boolean rememberLastViewedProfile;
     public SortOption sort = SortOption.NONE;
     public List<String> additionalFolders = new ArrayList<>();
+    public boolean actionBar;
+    public Map<String, Boolean> preferences = new HashMap<>();
     public @Nullable String activeProfile;
     public List<Profile> profiles = new ArrayList<>();
 
@@ -45,6 +48,7 @@ public final class Config {
                 if (config.sort == null) config.sort = SortOption.NONE;
                 if (config.additionalFolders == null) config.additionalFolders = new ArrayList<>();
                 if (config.profiles == null) config.profiles = new ArrayList<>();
+                if (config.preferences == null) config.preferences = new HashMap<>();
                 config.profiles.removeIf(profile -> profile == null || profile.name == null || profile.packs == null);
                 for (Profile profile : config.profiles) {
                     if (profile.overrides == null) profile.overrides = new HashMap<>();
@@ -75,6 +79,10 @@ public final class Config {
             }
         }
         return null;
+    }
+
+    public boolean pref(String widget) {
+        return this.preferences.getOrDefault(widget, true);
     }
 
     public @Nullable Profile getActiveProfile() {

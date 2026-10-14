@@ -8,6 +8,7 @@ import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.client.render.TextRenderer;
 import net.minecraft.client.render.Window;
 import net.minecraft.client.render.platform.GlStateManager;
+import net.minecraft.client.resource.language.I18n;
 import net.minecraft.resource.Identifier;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.opengl.GL11;
@@ -19,7 +20,10 @@ import java.util.stream.Stream;
 
 public final class PackList {
     public static final int ROW_HEIGHT = 36;
+    public static final int ARROW_RIGHT = 1, ARROW_LEFT = 2, ARROW_UP = 4, ARROW_DOWN = 8;
     private static final int SCROLLBAR_WIDTH = 6;
+    private static final Identifier HAMBURGER = new Identifier(PackedPacks.MOD_ID, "textures/gui/sprites/icon/hamburger.png");
+    private static final Identifier ARROWS = new Identifier("textures/gui/resource_packs.png");
     private static final Identifier FOLDER_ICON = new Identifier(PackedPacks.MOD_ID, "textures/misc/unknown_folder.png");
     private final Minecraft minecraft = Minecraft.getInstance();
     private final boolean browsable;
@@ -28,6 +32,8 @@ public final class PackList {
     public Predicate<Entry> filter = entry -> true;
     public Function<Entry, List<Identifier>> badges = entry -> List.of();
     public Function<String, List<Entry>> children = folder -> List.of();
+    public Function<Entry, Integer> arrows = entry -> 0;
+    public Predicate<Entry> folderButton = entry -> false;
     public String folder = "";
     private boolean flat;
     private boolean reorderable;
@@ -120,6 +126,39 @@ public final class PackList {
     public int indexAt(int mouseY) {
         int index = Math.floorDiv(mouseY - this.y + this.scroll, ROW_HEIGHT);
         return index >= 0 && index < this.view.size() ? index : -1;
+    }
+
+    public int arrowAt(int mouseX, int mouseY) {
+        int index = this.contains(mouseX, mouseY) ? this.indexAt(mouseY) : -1;
+        int relX = mouseX - this.x - 2;
+        int relY = mouseY - this.rowTop(index) - 2;
+        if (index < 0 || relX < 0 || relX >= 32 || relY < 0 || relY >= 32) return 0;
+        int arrows = this.arrows.apply(this.view.get(index));
+        int side = arrows & (ARROW_RIGHT | ARROW_LEFT);
+        if ((arrows & (ARROW_UP | ARROW_DOWN)) == 0) return side;
+        return relX < 16 ? side : arrows & (relY < 16 ? ARROW_UP : ARROW_DOWN);
+    }
+
+    public boolean folderButtonAt(int mouseX, int mouseY) {
+        int index = this.contains(mouseX, mouseY) ? this.indexAt(mouseY) : -1;
+        int relX = mouseX - this.x - 36;
+        int relY = mouseY - this.rowTop(index) - 22;
+        return index >= 0 && relX >= 0 && relX < 12 && relY >= 0 && relY < 12 && this.folderButton.test(this.view.get(index));
+    }
+
+    private int thumbHeight() {
+        return Math.max(16, this.height * this.height / Math.max(1, this.view.size() * ROW_HEIGHT));
+    }
+
+    public boolean overScrollbar(int mouseX, int mouseY) {
+        return this.contains(mouseX, mouseY) && mouseX >= this.x + this.width - SCROLLBAR_WIDTH && this.view.size() * ROW_HEIGHT > this.height;
+    }
+
+    public void dragScrollbar(int mouseY) {
+        int thumbHeight = this.thumbHeight();
+        int range = this.view.size() * ROW_HEIGHT - this.height;
+        if (range <= 0 || thumbHeight >= this.height) return;
+        this.scroll((mouseY - this.y - thumbHeight / 2) * range / (this.height - thumbHeight) - this.scroll);
     }
 
     public int dropRow(int mouseY) {
@@ -224,6 +263,18 @@ public final class PackList {
                 this.minecraft.getTextureManager().bind(FOLDER_ICON);
             }
             GuiElement.drawTexture(this.x + 2, top + 2, 0.0F, 0.0F, 32, 32, 32.0F, 32.0F);
+            int arrows = i == hovered ? this.arrows.apply(entry) : 0;
+            if (arrows != 0) {
+                int hit = this.arrowAt(mouseX, mouseY);
+                GuiElement.fill(this.x + 2, top + 2, this.x + 34, top + 34, 0xA0909090);
+                GlStateManager.color4f(1.0F, 1.0F, 1.0F, 1.0F);
+                this.minecraft.getTextureManager().bind(ARROWS);
+                int[] us = {0, 32, 96, 64};
+                for (int arrow = 0; arrow < 4; arrow++) {
+                    if ((arrows & 1 << arrow) == 0) continue;
+                    GuiElement.drawTexture(this.x + 2, top + 2, us[arrow], hit == 1 << arrow ? 32.0F : 0.0F, 32, 32, 256.0F, 256.0F);
+                }
+            }
 
             List<Identifier> badges = this.badges.apply(entry);
             for (int badge = 0; badge < badges.size(); badge++) {
@@ -236,16 +287,31 @@ public final class PackList {
             if (textRenderer.getWidth(name) > nameWidth) {
                 name = textRenderer.trim(name, nameWidth - textRenderer.getWidth("...")) + "...";
             }
+            String text = entry.description();
+            if (warn && i == hovered && entry.incompatible()) {
+                name = I18n.translate("resourcePack.incompatible");
+                text = I18n.translate("resourcePack.incompatible." + entry.incompatibility());
+            }
             textRenderer.drawWithShadow(name, this.x + 36, top + 3, 0xFFFFFF);
-            List<String> description = textRenderer.split(entry.description(), textWidth);
-            for (int line = 0; line < 2 && line < description.size(); line++) {
-                textRenderer.drawWithShadow(description.get(line), this.x + 36, top + 14 + 10 * line, 0x808080);
+            List<String> description = textRenderer.split(text, textWidth);
+            boolean button = this.folderButton.test(entry);
+            for (int line = 0; line < (button ? 1 : 2) && line < description.size(); line++) {
+                textRenderer.drawWithShadow(description.get(line), this.x + 36, top + (button ? 12 : 14) + 10 * line, 0x808080);
+            }
+            if (button) {
+                boolean over = i == hovered && this.folderButtonAt(mouseX, mouseY);
+                GuiElement.fill(this.x + 36, top + 22, this.x + 48, top + 34, over ? 0xFFFFFFFF : 0xFF808080);
+                GuiElement.fill(this.x + 37, top + 23, this.x + 47, top + 33, 0xFF000000);
+                GlStateManager.color4f(1.0F, 1.0F, 1.0F, 1.0F);
+                GlStateManager.enableBlend();
+                this.minecraft.getTextureManager().bind(HAMBURGER);
+                GuiElement.drawTexture(this.x + 37, top + 23, 0.0F, 0.0F, 10, 10, 10.0F, 10.0F);
             }
         }
 
         int contentHeight = this.view.size() * ROW_HEIGHT;
         if (contentHeight > this.height) {
-            int thumbHeight = Math.max(16, this.height * this.height / contentHeight);
+            int thumbHeight = this.thumbHeight();
             int thumbTop = this.y + this.scroll * (this.height - thumbHeight) / (contentHeight - this.height);
             GuiElement.fill(this.x + rowWidth, this.y, this.x + this.width, this.y + this.height, 0xFF000000);
             GuiElement.fill(this.x + rowWidth, thumbTop, this.x + this.width, thumbTop + thumbHeight, 0xFFC0C0C0);

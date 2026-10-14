@@ -36,6 +36,9 @@ public final class PackedPacksScreen extends Screen {
     private static final Identifier ARROW_UP_ICON = icon("arrow_up");
     private static final Identifier ARROW_DOWN_ICON = icon("arrow_down");
     private static final Identifier ALIAS_ICON = icon("alias");
+    private static final Identifier FILTER_ICON = icon("filter");
+    private static final Identifier HAMBURGER_ICON = icon("hamburger");
+    private static final int SIDEBAR_WIDTH = 110;
     private static final String ALIAS_SEPARATOR = ";";
     private static final int DOUBLE_CLICK_MS = 300;
     private static final int HISTORY_LIMIT = 100;
@@ -47,6 +50,10 @@ public final class PackedPacksScreen extends Screen {
     private static final int DONE_BUTTON = 5;
     private static final int OPTIONS_BUTTON = 6;
     private static final int INCOMPATIBLE_BUTTON = 7;
+    private static final int ACTIONBAR_BUTTON = 8;
+    private static final int SIDEBAR_BUTTON = 9;
+    private static final int TRANSFER_RIGHT_BUTTON = 10;
+    private static final int TRANSFER_LEFT_BUTTON = 11;
     private static @Nullable Screen original;
 
     private final Screen parent;
@@ -60,12 +67,16 @@ public final class PackedPacksScreen extends Screen {
     private PackList active = this.available;
     private boolean initialized;
     private boolean resizing;
+    private boolean sidebar;
+    private int center;
     private int ticks;
     private boolean changed;
     private @Nullable Menu menu;
     private @Nullable String error;
 
     private @Nullable PackList dragSource;
+    private @Nullable PackList scrolling;
+    private boolean incompatibleConfirmed;
     private boolean dragging;
     private int pressX, pressY;
     private int collapseTo = -1;
@@ -80,7 +91,10 @@ public final class PackedPacksScreen extends Screen {
         this.available.badges = this::badges;
         this.selected.badges = this::badges;
         this.available.children = this::children;
+        this.available.arrows = entry -> this.arrows(this.available, entry);
+        this.selected.arrows = entry -> this.arrows(this.selected, entry);
         this.selected.children = this::children;
+        this.available.folderButton = this.selected.folderButton = entry -> entry != Entry.UP && entry.isFolder() && this.config.pref("folder_pack");
     }
 
     private static Identifier icon(String name) {
@@ -115,6 +129,17 @@ public final class PackedPacksScreen extends Screen {
         return this.config.devMode || !this.config.isHidden(entry.id);
     }
 
+    private int arrows(PackList list, Entry entry) {
+        if (entry == Entry.UP) return 0;
+        boolean movable = !this.isLocked() && entry.transferable();
+        List<Entry> order = list.reorderable() ? list.rows() : movable && list == this.selected ? list.packs : List.of();
+        int index = order.indexOf(entry);
+        int arrows = (index > 0 ? PackList.ARROW_UP : 0) | (index >= 0 && index < order.size() - 1 ? PackList.ARROW_DOWN : 0);
+        if (!movable) return arrows;
+        if (list == this.available) return arrows | PackList.ARROW_RIGHT;
+        return arrows | (this.config.isRequired(entry.id) ? 0 : PackList.ARROW_LEFT);
+    }
+
     private List<Identifier> badges(Entry entry) {
         List<Identifier> badges = new ArrayList<>();
         if (entry == Entry.UP) return badges;
@@ -130,25 +155,49 @@ public final class PackedPacksScreen extends Screen {
     public void init() {
         Keyboard.enableRepeatEvents(true);
 
-        int columnWidth = Math.min(220, (this.width - 24) / 2);
-        int left = this.width / 2 - 4 - columnWidth;
-        int right = this.width / 2 + 4;
-        int listHeight = this.height - 34 - 60;
-        this.available.layout(left, 60, columnWidth, listHeight);
-        this.selected.layout(right, 60, columnWidth, listHeight);
+        int offset = this.sidebar ? SIDEBAR_WIDTH : 0;
+        int columnWidth = Math.min(220, (this.width - offset - 24) / 2);
+        this.center = offset + (this.width - offset) / 2;
+        int left = this.center - 4 - columnWidth;
+        int right = this.center + 4;
+        boolean actionBar = this.config.pref("action_bar");
+        boolean ribbon = actionBar && this.config.actionBar;
+        int top = ribbon ? 84 : 60;
+        this.available.layout(left, top, columnWidth, this.height - 34 - top);
+        this.selected.layout(right, top, columnWidth, this.height - 34 - top);
         if (!this.resizing) this.reloadPacks(Folders.stale());
 
         int bottomWidth = (columnWidth * 2 - 8) / 3;
+        int hidden = -100;
+        int x = right + columnWidth + 4;
+        int originalX = this.config.pref("original_screen") ? (x -= 24) : hidden;
+        int optionsX = this.config.pref("options") ? (x -= 24) : hidden;
+        int incompatibleX = this.config.pref("toggle_incompatible") ? (x -= 24) : hidden;
         this.buttons.clear();
-        this.buttons.add(new ButtonWidget(PROFILE_BUTTON, left, 18, columnWidth, 20, ""));
-        this.buttons.add(new ButtonWidget(SORT_BUTTON, right, 18, columnWidth - 72, 20, ""));
-        this.buttons.add(new ButtonWidget(ORIGINAL_BUTTON, right + columnWidth - 20, 18, 20, 20, ""));
+        this.buttons.add(new ButtonWidget(PROFILE_BUTTON, left + 24, 18, columnWidth - 24 - (actionBar ? 24 : 0), 20, ""));
+        this.buttons.add(new ButtonWidget(SORT_BUTTON, right, 18, x - 4 - right, 20, ""));
+        this.buttons.add(new ButtonWidget(ORIGINAL_BUTTON, originalX, 18, 20, 20, ""));
         this.buttons.add(new ButtonWidget(FOLDER_BUTTON, left, this.height - 28, bottomWidth, 20, I18n.translate("resourcePack.openFolder")));
         this.buttons.add(new ButtonWidget(APPLY_BUTTON, left + bottomWidth + 8, this.height - 28, bottomWidth, 20, I18n.translate("packed_packs.apply")));
         this.buttons.add(new ButtonWidget(DONE_BUTTON, left + (bottomWidth + 8) * 2, this.height - 28, bottomWidth, 20, I18n.translate("gui.done")));
-        this.buttons.add(new ButtonWidget(OPTIONS_BUTTON, right + columnWidth - 44, 18, 20, 20, ""));
-        this.buttons.add(new ButtonWidget(INCOMPATIBLE_BUTTON, right + columnWidth - 68, 18, 20, 20, ""));
+        this.buttons.add(new ButtonWidget(OPTIONS_BUTTON, optionsX, 18, 20, 20, ""));
+        this.buttons.add(new ButtonWidget(INCOMPATIBLE_BUTTON, incompatibleX, 18, 20, 20, ""));
+        this.buttons.add(new ButtonWidget(ACTIONBAR_BUTTON, actionBar ? left + columnWidth - 20 : hidden, 18, 20, 20, ""));
+        this.buttons.add(new ButtonWidget(SIDEBAR_BUTTON, left, 18, 20, 20, ""));
+        this.buttons.add(new ButtonWidget(TRANSFER_RIGHT_BUTTON, ribbon ? left + columnWidth - 20 : hidden, 42, 20, 20, ">>"));
+        this.buttons.add(new ButtonWidget(TRANSFER_LEFT_BUTTON, ribbon ? right : hidden, 42, 20, 20, "<<"));
         this.updateButtons();
+    }
+
+    private void relayout() {
+        this.resizing = true;
+        this.init();
+        this.resizing = false;
+    }
+
+    private void toggleSidebar() {
+        this.sidebar = !this.sidebar;
+        this.relayout();
     }
 
     @Override
@@ -163,6 +212,7 @@ public final class PackedPacksScreen extends Screen {
         this.buttons.get(PROFILE_BUTTON).message = profile != null ? profile.name : I18n.translate("packed_packs.profile.none");
         this.buttons.get(SORT_BUTTON).message = I18n.translate("packed_packs.sort") + ": " + I18n.translate(this.config.sort.translationKey());
         this.buttons.get(APPLY_BUTTON).active = this.changed;
+        this.buttons.get(TRANSFER_RIGHT_BUTTON).active = this.buttons.get(TRANSFER_LEFT_BUTTON).active = !this.isLocked();
     }
 
     private void reloadPacks() {
@@ -356,7 +406,18 @@ public final class PackedPacksScreen extends Screen {
         List<Entry> moved = from.selected().stream()
                 .filter(entry -> entry.transferable() && (to != this.available || from == to || !this.config.isRequired(entry.id)))
                 .toList();
-        if (moved.isEmpty() || (from == to && to == this.available) || !this.beginChange()) return;
+        if (moved.isEmpty() || (from == to && to == this.available) || this.isLocked()) return;
+        Entry incompatible = moved.stream().filter(Entry::incompatible).findFirst().orElse(null);
+        if (incompatible != null && from != to && to == this.selected && !this.incompatibleConfirmed && !this.config.hideIncompatibleWarnings) {
+            this.minecraft.openScreen(new ConfirmScreen((confirmed, id) -> {
+                this.minecraft.openScreen(this);
+                this.incompatibleConfirmed = confirmed;
+                if (confirmed) this.transfer(from, to, index, follow);
+                this.incompatibleConfirmed = false;
+            }, I18n.translate("resourcePack.incompatible.confirm.title"), I18n.translate("resourcePack.incompatible.confirm." + incompatible.incompatibility()), 0));
+            return;
+        }
+        if (!this.beginChange()) return;
 
         int insert = index >= 0 ? index : to == this.selected ? 0 : to.packs.size();
         if (from == to) {
@@ -373,6 +434,27 @@ public final class PackedPacksScreen extends Screen {
         } else {
             from.moveFocus(0, false);
         }
+    }
+
+    private void transferAll(PackList list) {
+        list.selection.clear();
+        list.selectAll();
+        this.transfer(list, this.other(list), -1, false);
+    }
+
+    private void resetEnabled() {
+        if (!this.beginChange()) return;
+        List<ResourcePacks.UnopenedPack> packs = new ArrayList<>(this.repository().getSelectedPacks());
+        Collections.reverse(packs);
+        List<Entry> enabled = new ArrayList<>();
+        for (ResourcePacks.UnopenedPack pack : packs) {
+            Entry entry = this.owners.get(pack.getName());
+            if (entry != null && !enabled.contains(entry)) enabled.add(entry);
+        }
+        List<Entry> rest = new ArrayList<>(this.available.packs);
+        rest.addAll(this.selected.packs);
+        rest.removeAll(enabled);
+        this.setPacks(new Snapshot(rest, enabled));
     }
 
     private void shift(int direction) {
@@ -512,8 +594,8 @@ public final class PackedPacksScreen extends Screen {
         this.setProfile(profile);
     }
 
-    private void openProfileMenu(ButtonWidget button) {
-        Menu menu = new Menu(button.x, button.y + 20, button.getWidth());
+    private Menu profileMenu(int x, int y, int width) {
+        Menu menu = new Menu(x, y, width);
         DevConfig.Packs dev = DevConfig.get();
         Config.Profile active = this.profile();
         menu.add((active == null ? "> " : "") + I18n.translate("packed_packs.profile.none"), () -> this.setProfile(null));
@@ -521,6 +603,7 @@ public final class PackedPacksScreen extends Screen {
             String star = profile.name.equals(dev.defaultProfile) ? " ★" : "";
             menu.add((profile == active ? "> " : "") + profile.name + star, () -> this.setProfile(profile));
         }
+        if (this.config.profiles.isEmpty()) menu.add(I18n.translate("packed_packs.profile.empty"), null);
         menu.add("+ " + I18n.translate("packed_packs.profile.new"), () -> this.minecraft.openScreen(new TextPromptScreen(
                 this, I18n.translate("packed_packs.profile.new.info"), I18n.translate("packed_packs.profile.unnamed"),
                 name -> this.addProfile(new Config.Profile(name, this.selected.packs.stream().map(entry -> entry.id).toList()))
@@ -564,7 +647,35 @@ public final class PackedPacksScreen extends Screen {
                 DevConfig.save();
             });
         }
+        return menu;
+    }
+
+    private void openPreferencesMenu(int x, int y) {
+        Menu menu = new Menu(x, y, 120);
+        for (String widget : Config.PREFERENCES) {
+            boolean shown = this.config.pref(widget);
+            menu.add(I18n.translate("packed_packs.preferences.widgets." + widget) + ": " + I18n.translate(shown ? "options.on" : "options.off"), () -> {
+                this.config.preferences.put(widget, !shown);
+                this.relayout();
+                this.openPreferencesMenu(x, y);
+            });
+        }
+        menu.add(I18n.translate("packed_packs.preferences.reset"), () -> {
+            this.config.preferences.clear();
+            this.relayout();
+        });
         this.menu = menu;
+    }
+
+    private void promptRename(Entry entry) {
+        this.minecraft.openScreen(new TextPromptScreen(this, I18n.translate("packed_packs.file.rename"), entry.name(), name -> this.rename(entry, name)));
+    }
+
+    private void confirmDelete(List<Entry> packs) {
+        this.minecraft.openScreen(new ConfirmScreen((confirmed, id) -> {
+            if (confirmed) this.delete(packs);
+            this.minecraft.openScreen(this);
+        }, I18n.translate("packed_packs.file.delete"), String.join(", ", packs.stream().map(entry -> entry.id).toList()), 0));
     }
 
     private List<ResourcePacks.UnopenedPack> packsIn(Entry entry) {
@@ -588,16 +699,11 @@ public final class PackedPacksScreen extends Screen {
                 }
             }
             menu.add(I18n.translate("packed_packs.file.open"), () -> PackedPacks.open(file));
-            menu.add(I18n.translate("packed_packs.file.rename"), () -> this.minecraft.openScreen(new TextPromptScreen(
-                    this, I18n.translate("packed_packs.file.rename"), entry.name(), name -> this.rename(entry, name)
-            )));
+            menu.add(I18n.translate("packed_packs.file.rename"), () -> this.promptRename(entry));
             if (this.config.devMode) this.addDevItems(menu, entry);
         }
         if (!packs.isEmpty()) {
-            menu.add(I18n.translate("packed_packs.file.delete"), () -> this.minecraft.openScreen(new ConfirmScreen((confirmed, id) -> {
-                if (confirmed) this.delete(packs);
-                this.minecraft.openScreen(this);
-            }, I18n.translate("packed_packs.file.delete"), String.join(", ", packs.stream().map(entry -> entry.id).toList()), 0)));
+            menu.add(I18n.translate("packed_packs.file.delete"), () -> this.confirmDelete(packs));
         }
         String opened = list.folder;
         if (list == this.available && !opened.isEmpty() && this.selected.packs.stream().anyMatch(entry -> entry.id.startsWith(opened))) {
@@ -605,7 +711,15 @@ public final class PackedPacksScreen extends Screen {
         }
         File folder = file != null ? file.getParentFile() : this.repository().getDirectory();
         menu.add(I18n.translate("packed_packs.file.parent.open"), () -> PackedPacks.open(folder));
+        for (String path : this.config.additionalFolders) {
+            File additional = new File(path);
+            if (additional.isDirectory()) {
+                menu.add(I18n.translate("packed_packs.file.parent.open") + ": " + additional.getName(), () -> PackedPacks.open(additional));
+            }
+        }
+        menu.add(I18n.translate("packed_packs.reset_enabled"), this.isLocked() ? null : this::resetEnabled);
         menu.add(I18n.translate("packed_packs.refresh"), this::reloadPacks);
+        if (this.config.devMode) menu.add(I18n.translate("packed_packs.preferences"), () -> this.openPreferencesMenu(mouseX, mouseY));
         this.menu = menu;
     }
 
@@ -686,7 +800,14 @@ public final class PackedPacksScreen extends Screen {
     @Override
     protected void buttonClicked(ButtonWidget button) {
         switch (button.id) {
-            case PROFILE_BUTTON -> this.openProfileMenu(button);
+            case PROFILE_BUTTON -> this.menu = this.profileMenu(button.x, button.y + 20, button.getWidth());
+            case ACTIONBAR_BUTTON -> {
+                this.config.actionBar = !this.config.actionBar;
+                this.relayout();
+            }
+            case SIDEBAR_BUTTON -> this.toggleSidebar();
+            case TRANSFER_RIGHT_BUTTON -> this.transferAll(this.available);
+            case TRANSFER_LEFT_BUTTON -> this.transferAll(this.selected);
             case SORT_BUTTON -> {
                 this.config.sort = this.config.sort.next();
                 this.available.refresh();
@@ -716,7 +837,7 @@ public final class PackedPacksScreen extends Screen {
             int mouseY = this.height - Mouse.getEventY() * this.height / this.minecraft.height - 1;
             for (PackList list : List.of(this.available, this.selected)) {
                 if (list.contains(mouseX, mouseY)) {
-                    list.scroll(-Integer.signum(wheel) * Math.max(1, Math.abs(wheel) * PackList.ROW_HEIGHT / 240));
+                    list.scroll(-(Math.abs(wheel) < 120 ? Integer.signum(wheel) : wheel / 120) * PackList.ROW_HEIGHT / 2);
                 }
             }
         }
@@ -731,6 +852,16 @@ public final class PackedPacksScreen extends Screen {
             menu.click(mouseX, mouseY);
             this.updateButtons();
             return;
+        }
+        if (this.sidebar) {
+            Menu panel = this.profileMenu(1, 16, SIDEBAR_WIDTH - 2);
+            if (panel.indexAt(mouseX, mouseY) >= 0) {
+                if (button == 0) {
+                    panel.click(mouseX, mouseY);
+                    this.updateButtons();
+                }
+                return;
+            }
         }
         if (button == 3) {
             this.restore(this.undo, this.redo);
@@ -749,6 +880,11 @@ public final class PackedPacksScreen extends Screen {
         if (list == null || this.menu != null || this.minecraft.screen != this) return;
 
         this.active = list;
+        if (button == 0 && list.overScrollbar(mouseX, mouseY)) {
+            this.scrolling = list;
+            list.dragScrollbar(mouseY);
+            return;
+        }
         int index = list.indexAt(mouseY);
         Entry entry = index >= 0 ? list.view().get(index) : null;
         boolean toggle = isControlDown();
@@ -758,6 +894,22 @@ public final class PackedPacksScreen extends Screen {
             if (entry == null || !list.selection.contains(entry)) list.click(index, false, false);
             this.openPackMenu(list, mouseX, mouseY);
         } else if (button == 0) {
+            if (list.folderButtonAt(mouseX, mouseY)) {
+                this.openFolder(list, entry.id);
+                return;
+            }
+            int arrow = list.arrowAt(mouseX, mouseY);
+            if (arrow != 0) {
+                list.click(index, false, false);
+                if (arrow == PackList.ARROW_UP || arrow == PackList.ARROW_DOWN) {
+                    int direction = arrow == PackList.ARROW_UP ? -1 : 1;
+                    if (list.reorderable()) this.shiftInFolder(list, direction);
+                    else this.shift(direction);
+                } else {
+                    this.transfer(list, this.other(list), -1, false);
+                }
+                return;
+            }
             long now = Minecraft.getTime();
             if (entry != null && entry.equals(this.lastClicked) && now - this.lastClickTime < DOUBLE_CLICK_MS && !toggle && !range) {
                 this.lastClicked = null;
@@ -783,6 +935,7 @@ public final class PackedPacksScreen extends Screen {
 
     @Override
     protected void mouseDragged(int mouseX, int mouseY, int button, long duration) {
+        if (this.scrolling != null) this.scrolling.dragScrollbar(mouseY);
         if (this.dragSource != null && !this.isLocked() && (Math.abs(mouseX - this.pressX) > 3 || Math.abs(mouseY - this.pressY) > 3)) {
             this.dragging = true;
         }
@@ -805,6 +958,7 @@ public final class PackedPacksScreen extends Screen {
             source.click(this.collapseTo, false, false);
         }
         this.dragSource = null;
+        this.scrolling = null;
         this.dragging = false;
         this.collapseTo = -1;
     }
@@ -835,15 +989,35 @@ public final class PackedPacksScreen extends Screen {
 
         boolean control = isControlDown();
         boolean shift = isShiftDown();
+        List<Entry> chosen = this.active.selected();
+        Entry single = chosen.size() == 1 ? chosen.getFirst() : null;
+        File file = single != null ? single.file() : null;
         if (key == Keyboard.KEY_ESCAPE) {
             this.close(this.config.applyOnClose);
+        } else if (isAltDown() && shift && key == Keyboard.KEY_R) {
+            if (file != null) PackedPacks.open(file.getParentFile());
+        } else if (control && key == Keyboard.KEY_R || key == Keyboard.KEY_F2 && this.minecraft.options.screenshotKey.getKeyCode() != Keyboard.KEY_F2) {
+            if (file != null) this.promptRename(single);
+        } else if (control && (key == Keyboard.KEY_RETURN || key == Keyboard.KEY_NUMPADENTER)) {
+            if (file != null) PackedPacks.open(file);
+        } else if (key == Keyboard.KEY_DELETE) {
+            if (!chosen.isEmpty()) this.confirmDelete(chosen);
+        } else if (key == Keyboard.KEY_F1) {
+            Config.Profile defaultProfile = this.config.getDefaultProfile();
+            if (defaultProfile != null) this.setProfile(this.profile() == defaultProfile ? null : defaultProfile);
+        } else if (key == Keyboard.KEY_F12 || control && shift && key == Keyboard.KEY_I) {
+            this.config.devMode = !this.config.devMode;
+            this.available.refresh();
+            this.selected.refresh();
+        } else if (control && key == Keyboard.KEY_GRAVE) {
+            this.toggleSidebar();
         } else if (control && key == Keyboard.KEY_Z) {
             this.restore(shift ? this.redo : this.undo, shift ? this.undo : this.redo);
         } else if (control && key == Keyboard.KEY_Y) {
             this.restore(this.redo, this.undo);
         } else if (control && key == Keyboard.KEY_A) {
             this.active.selectAll();
-        } else if (control && key == Keyboard.KEY_F) {
+        } else if (control && (key == Keyboard.KEY_F || key == Keyboard.KEY_K)) {
             this.active.search.setFocused(true);
         } else if (key == Keyboard.KEY_F5) {
             this.reloadPacks();
@@ -890,7 +1064,7 @@ public final class PackedPacksScreen extends Screen {
     @Override
     public void render(int mouseX, int mouseY, float tickDelta) {
         this.drawBackgroundTexture(0);
-        this.drawCenteredString(this.textRenderer, I18n.translate("resourcePack.title"), this.width / 2, 6, 0xFFFFFF);
+        this.drawCenteredString(this.textRenderer, I18n.translate("resourcePack.title"), this.center, 6, 0xFFFFFF);
         int widgetMouseX = this.menu != null ? -1 : mouseX;
         int widgetMouseY = this.menu != null ? -1 : mouseY;
 
@@ -909,7 +1083,17 @@ public final class PackedPacksScreen extends Screen {
             this.drawIcon(LOCK_ICON, profileButton.x + 2, profileButton.y + 2);
         }
         if (this.error != null) {
-            this.drawCenteredString(this.textRenderer, this.error, this.width / 2, this.height - 34 + 1, 0xFF5555);
+            this.drawCenteredString(this.textRenderer, this.error, this.center, this.height - 34 + 1, 0xFF5555);
+        }
+        ButtonWidget actionBarButton = this.buttons.get(ACTIONBAR_BUTTON);
+        ButtonWidget sidebarButton = this.buttons.get(SIDEBAR_BUTTON);
+        this.drawIcon(FILTER_ICON, actionBarButton.x + 2, actionBarButton.y + 2);
+        this.drawIcon(HAMBURGER_ICON, sidebarButton.x + 2, sidebarButton.y + 2);
+        if (this.sidebar) {
+            // ponytail: panel is the profile dropdown pinned open; long profile names overflow its width. Trim labels if that bites.
+            fill(0, 0, SIDEBAR_WIDTH, this.height, 0xC0000000);
+            this.textRenderer.drawWithShadow(I18n.translate("packed_packs.profile"), 4, 4, 0xFFFFFF);
+            this.profileMenu(1, 16, SIDEBAR_WIDTH - 2).render(widgetMouseX, widgetMouseY);
         }
 
         PackList source = this.dragSource;
@@ -923,6 +1107,14 @@ public final class PackedPacksScreen extends Screen {
             this.renderTooltip(I18n.translate("packed_packs.options"), mouseX, mouseY);
         } else if (incompatibleButton.isHovered()) {
             this.renderTooltip(I18n.translate("packed_packs.hide_incompatible.info"), mouseX, mouseY);
+        } else if (actionBarButton.isHovered()) {
+            this.renderTooltip(I18n.translate("packed_packs.toggle_actionbar.info"), mouseX, mouseY);
+        } else if (sidebarButton.isHovered()) {
+            this.renderTooltip(I18n.translate("packed_packs.profile"), mouseX, mouseY);
+        } else if (this.buttons.get(TRANSFER_RIGHT_BUTTON).isHovered() || this.buttons.get(TRANSFER_LEFT_BUTTON).isHovered()) {
+            this.renderTooltip(I18n.translate("packed_packs.transfer_all.info"), mouseX, mouseY);
+        } else if (this.available.folderButtonAt(mouseX, mouseY) || this.selected.folderButtonAt(mouseX, mouseY)) {
+            this.renderTooltip(I18n.translate("packed_packs.folder.open"), mouseX, mouseY);
         }
     }
 
